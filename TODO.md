@@ -4,7 +4,7 @@ Mã đã viết xong trong `lab/` và `lab_day10.ipynb`. Phần còn lại cần
 
 ## A. Chuẩn bị (≈ 15 phút)
 - [ ] `git push` repo lên GitHub (để Colab clone được). Repo phải **công khai** khi nộp.
-- [ ] Tạo Colab Secrets `KAGGLE_USERNAME`, `KAGGLE_KEY` (tuỳ chọn thêm `HF_TOKEN`).
+- [ ] Tạo Colab Secrets `KAGGLE_API_TOKEN` (token `KGAT_...`) và `GH_TOKEN` (GitHub token quyền `repo`).
 - [ ] Mở `lab_day10.ipynb` trên Colab → Runtime **T4 GPU** → chạy mục 0–1 (mount Drive, clone, pip, pytest, prepare_data).
   - Nếu `REPO_URL` không phải repo của bạn: sửa ở ô đầu tiên.
   - Nếu gặp `ImportError ... Torchvision`: `pip install torchvision` cùng bản torch của Colab.
