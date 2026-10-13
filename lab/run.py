@@ -70,6 +70,12 @@ def main(argv=None):
         from lab import vlm
         if not cfg.get("lora"):
             sys.exit("config này không có lora (E0 là zero-shot, chỉ cần predict)")
+        run_json = out / "run.json"
+        if a.resume and run_json.exists():
+            done = json.loads(run_json.read_text(encoding="utf-8"))
+            if len(done.get("losses", [])) >= cfg["max_steps"]:
+                print(f"{run_json} đã đủ {cfg['max_steps']} bước: bỏ qua train")
+                return
         vlm.train(cfg, out, a.data, resume=a.resume)
     elif a.cmd == "predict":
         from lab import vlm

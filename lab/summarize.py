@@ -22,7 +22,7 @@ def _order(stem):
 def row(stem, d):
     meta = d.get("meta", {})
     pc = d["per_class"]
-    setup = SETUPS.get(stem, stem[3:].replace("_", " = ", 1) if stem.startswith("e4_") else d["name"])
+    setup = SETUPS.get(stem, " = ".join(stem[3:].rsplit("_", 1)) if stem.startswith("e4_") else d["name"])
     tp = meta.get("trainable_params", 0)
     return (f"| {d['name']} | {setup} | {tp:,} | {meta.get('peak_vram_gb', '—')} "
             f"| {meta.get('train_minutes', '—')} | {d['micro']['f1']:.3f} "
