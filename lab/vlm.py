@@ -31,13 +31,45 @@ def load_model(model_id="Qwen/Qwen3-VL-4B-Instruct"):
     quant = BitsAndBytesConfig(
         load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16,
         bnb_4bit_use_double_quant=True,
-        # giữ ViT (kể cả projector) và lm_head ở fp16 để projector huấn luyện đầy đủ được
-        llm_int8_skip_modules=["visual", "lm_head"])
+        # giữ ViT (kể cả projector) và lm_head ở fp16 để projector huấn luyện đầy đủ được.
+        # transformers 5.x so khớp theo tên đầy đủ nên ghi cả "model.visual".
+        llm_int8_skip_modules=["visual", "model.visual", "lm_head"])
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         model_id, quantization_config=quant, dtype=torch.float16, device_map={"": 0})
+    quantized = quantized_visual_modules(model)
+    if quantized:
+        print(f"CẢNH BÁO: {len(quantized)} Linear trong ViT vẫn bị lượng tử hoá 4-bit "
+              f"(vd. {quantized[0]}); giải lượng tử về fp16 để projector huấn luyện đầy đủ được")
+        dequantize_modules(model, quantized)
     processor = AutoProcessor.from_pretrained(model_id)
     processor.tokenizer.padding_side = "left"
     return model, processor
+
+
+def quantized_visual_modules(model):
+    return [n for n, m in model.named_modules()
+            if "visual" in n.split(".") and type(m).__name__ == "Linear4bit"]
+
+
+def dequantize_modules(model, names):
+    """Thay Linear4bit bằng nn.Linear fp16 (trọng số giải lượng tử từ NF4)."""
+    import bitsandbytes.functional as bnbf
+
+    for name in names:
+        parent_name, child = name.rsplit(".", 1)
+        parent = model.get_submodule(parent_name)
+        old = getattr(parent, child)
+        w = bnbf.dequantize_4bit(old.weight.data, old.weight.quant_state).to(torch.float16)
+        new = torch.nn.Linear(old.in_features, old.out_features, bias=old.bias is not None,
+                              device=w.device, dtype=torch.float16)
+        with torch.no_grad():
+            new.weight.copy_(w.reshape(new.weight.shape))
+            if old.bias is not None:
+                new.bias.copy_(old.bias.to(torch.float16))
+        setattr(parent, child, new)
+    left = quantized_visual_modules(model)
+    if left:
+        raise RuntimeError(f"ViT vẫn còn {len(left)} module 4-bit, vd. {left[0]}")
 
 
 def describe_architecture(model_id="Qwen/Qwen3-VL-4B-Instruct"):
@@ -172,9 +204,13 @@ def apply_setup(model, cfg):
     if cfg["train_projector"]:
         for name, p in peft_model.named_parameters():
             if is_projector(name):
-                p.data = p.data.float()     # master weight fp32 để GradScaler/AdamW cập nhật ổn định
                 p.requires_grad = True
                 n_proj += p.numel()
+    # master weight fp32 (LoRA + projector): GradScaler không unscale được gradient fp16,
+    # và bước cập nhật nhỏ bị làm tròn mất nếu cộng vào trọng số fp16
+    for p in peft_model.parameters():
+        if p.requires_grad and p.dtype != torch.float32:
+            p.data = p.data.float()
     trainable = sum(p.numel() for p in peft_model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in peft_model.parameters())
     print(f"tham số huấn luyện: {trainable:,} (projector {n_proj:,}) / tổng {total:,}")
